@@ -23,6 +23,65 @@ async function loadData() {
   }
 }
 
+// ---------- 天気（Open-Meteo、板橋区） ----------
+const WEATHER_URL = "https://api.open-meteo.com/v1/forecast?latitude=35.766&longitude=139.709&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,precipitation_probability&daily=temperature_2m_max,temperature_2m_min,weather_code,precipitation_probability_max&timezone=Asia%2FTokyo&forecast_days=2&wind_speed_unit=ms";
+
+function weatherLabel(code) {
+  if (code === 0) return "☀️ 晴れ";
+  if (code <= 2) return "⛅ 晴れ時々くもり";
+  if (code === 3) return "☁️ くもり";
+  if (code === 45 || code === 48) return "🌫 霧";
+  if (code >= 51 && code <= 57) return "🌦 霧雨";
+  if ((code >= 61 && code <= 67) || (code >= 80 && code <= 82)) return "🌧 雨";
+  if ((code >= 71 && code <= 77) || code === 85 || code === 86) return "🌨 雪";
+  if (code >= 95) return "⛈ 雷雨";
+  return "☁️ くもり";
+}
+
+function dateKey(d) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function hourIndex(hourly, key, hour) {
+  const target = `${key}T${String(hour).padStart(2, "0")}:00`;
+  return hourly.time.indexOf(target);
+}
+
+// 帰り（23時台）の判定。お嬢ルール：風4m以上は注意、湿度65%以上＆15度以上はじめっと暑い、雨は電車。
+function judgeWalkHome(w) {
+  const idx23 = hourIndex(w.hourly, dateKey(new Date()), 23);
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  const idx00 = hourIndex(w.hourly, dateKey(tomorrow), 0);
+  const idxs = [idx23, idx00].filter((i) => i >= 0);
+  if (idxs.length === 0) return null;
+  let wind = 0, prob = 0;
+  for (const i of idxs) {
+    wind = Math.max(wind, w.hourly.wind_speed_10m[i] ?? 0);
+    prob = Math.max(prob, w.hourly.precipitation_probability[i] ?? 0);
+  }
+  const temp = w.hourly.temperature_2m[idx23];
+  const hum = w.hourly.relative_humidity_2m[idx23];
+  const reasons = [];
+  let hard = false;
+  if (prob >= 50) { hard = true; reasons.push("雨の予報"); }
+  if (wind >= 8) { hard = true; reasons.push("風が強い"); }
+  else if (wind >= 4) { reasons.push("風4m以上で注意"); }
+  if (hum >= 65 && temp >= 15) { reasons.push("じめっと暑いかも"); }
+  const verdict = hard ? "電車が無難" : (reasons.length ? "注意して歩ける" : "歩いて帰れる◎");
+  return { temp, hum, wind, prob, reasons, verdict, hard, caution: !hard && reasons.length > 0 };
+}
+
+async function loadWeather() {
+  try {
+    const req = new Request(WEATHER_URL);
+    req.timeoutInterval = 10;
+    return await req.loadJSON();
+  } catch (e) {
+    return null;
+  }
+}
+
 // ---------- 次の予定を計算 ----------
 function nextEvent(schedule) {
   const now = new Date();
@@ -71,6 +130,24 @@ async function buildWidget() {
     const aT = alertStack.addText(`⚠️ ${data.alert}`);
     aT.font = Font.boldSystemFont(13);
     aT.textColor = new Color("#fecdd3");
+  }
+
+  // 天気ストリップ（取れた時だけ表示）
+  const weather = await loadWeather();
+  if (weather && weather.daily) {
+    const d = weather.daily;
+    const wLine = w.addText(`${weatherLabel(d.weather_code[0])}　最高 ${Math.round(d.temperature_2m_max[0])}° / 最低 ${Math.round(d.temperature_2m_min[0])}°　☂️ ${d.precipitation_probability_max[0] ?? 0}%`);
+    wLine.font = Font.systemFont(12);
+    wLine.textColor = SOFT;
+    if (data.shift) {
+      const j = judgeWalkHome(weather);
+      if (j) {
+        const note = j.reasons.length ? `（${j.reasons.join("・")}）` : "";
+        const ret = w.addText(`帰り23時 ${Math.round(j.temp)}° 湿度${Math.round(j.hum)}% 風${j.wind.toFixed(0)}m → ${j.verdict}${note}`);
+        ret.font = Font.boldSystemFont(12);
+        ret.textColor = j.hard ? new Color("#fda4af") : (j.caution ? new Color("#fde68a") : new Color("#86efac"));
+      }
+    }
   }
 
   w.addSpacer(8);
