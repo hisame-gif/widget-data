@@ -109,13 +109,19 @@ async function buildWidget() {
 
   bottom.addSpacer();
 
-  if (data.train) {
+  // 電車：平日／土日で自動切替（data.trains があればそちら優先）
+  let train = data.train || null;
+  if (data.trains) {
+    const dow = new Date().getDay();
+    train = (dow === 0 || dow === 6) ? data.trains.holiday : data.trains.weekday;
+  }
+  if (train) {
     const trainCol = bottom.addStack();
     trainCol.layoutVertically();
-    const trainTitle = trainCol.addText(`🚃 ${data.train.title}`);
+    const trainTitle = trainCol.addText(`🚃 ${train.title}`);
     trainTitle.font = Font.boldSystemFont(12);
     trainTitle.textColor = ACCENT;
-    for (const line of data.train.lines || []) {
+    for (const line of train.lines || []) {
       const t = trainCol.addText(line);
       t.font = Font.systemFont(12);
       t.textColor = WHITE;
