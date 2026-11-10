@@ -61,6 +61,18 @@ async function buildWidget() {
   typeT.font = Font.systemFont(13);
   typeT.textColor = ACCENT;
 
+  // アラート（遅延などがある時だけ表示）
+  if (data.alert) {
+    w.addSpacer(6);
+    const alertStack = w.addStack();
+    alertStack.backgroundColor = new Color("#7f1d2e", 0.9);
+    alertStack.cornerRadius = 8;
+    alertStack.setPadding(6, 8, 6, 8);
+    const aT = alertStack.addText(`⚠️ ${data.alert}`);
+    aT.font = Font.boldSystemFont(13);
+    aT.textColor = new Color("#fecdd3");
+  }
+
   w.addSpacer(8);
 
   // 次の予定（大きく）
