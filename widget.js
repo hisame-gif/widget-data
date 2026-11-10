@@ -1,9 +1,19 @@
-// ひさめの一日ウィジェット（大サイズ）
-// Scriptable 用。データは GitHub の data.json を読みに行く。
-// データ更新は甚太が GitHub 経由で行うので、このスクリプトは触らなくてOK。
+// ひさめのウィジェット v5（2個置き対応）
+// 大サイズ：一日の流れ（予定・天気・電車）
+// 中サイズ：Muse週間使用量リング
+// 小サイズ：次の予定ミニ
+// データは GitHub の data.json から。使用量は甚太が定期更新する。
 
 const DATA_URL = "https://raw.githubusercontent.com/hisame-gif/widget-data/main/data.json";
 const CACHE_NAME = "hisame-widget-cache.json";
+
+const WHITE = new Color("#ffffff");
+const SOFT = new Color("#c7d2e8");
+const ACCENT = new Color("#7dd3fc");
+const PINK = new Color("#fda4af");
+const YELLOW = new Color("#fde68a");
+const GREEN = new Color("#86efac");
+const TRACK = new Color("#334155");
 
 // ---------- データ取得（失敗したら前回キャッシュ） ----------
 async function loadData() {
@@ -44,8 +54,7 @@ function dateKey(d) {
 }
 
 function hourIndex(hourly, key, hour) {
-  const target = `${key}T${String(hour).padStart(2, "0")}:00`;
-  return hourly.time.indexOf(target);
+  return hourly.time.indexOf(`${key}T${String(hour).padStart(2, "0")}:00`);
 }
 
 // 帰り（23時台）の判定。お嬢ルール：風4m以上は注意、湿度65%以上＆15度以上はじめっと暑い、雨は電車。
@@ -69,7 +78,7 @@ function judgeWalkHome(w) {
   else if (wind >= 4) { reasons.push("風4m以上で注意"); }
   if (hum >= 65 && temp >= 15) { reasons.push("じめっと暑いかも"); }
   const verdict = hard ? "電車が無難" : (reasons.length ? "注意して歩ける" : "歩いて帰れる◎");
-  return { temp, hum, wind, prob, reasons, verdict, hard, caution: !hard && reasons.length > 0 };
+  return { temp, hum, wind, reasons, verdict, hard, caution: !hard && reasons.length > 0 };
 }
 
 async function loadWeather() {
@@ -82,34 +91,62 @@ async function loadWeather() {
   }
 }
 
-// ---------- 次の予定を計算 ----------
+// ---------- 次の予定 ----------
 function nextEvent(schedule) {
   const now = new Date();
   const nowMin = now.getHours() * 60 + now.getMinutes();
-  for (const item of schedule) {
+  for (const item of schedule || []) {
     const [h, m] = item.time.split(":").map(Number);
     if (h * 60 + m >= nowMin) return item;
   }
   return null;
 }
 
-// ---------- ウィジェット組み立て ----------
-async function buildWidget() {
-  const data = await loadData();
-  const w = new ListWidget();
-  w.setPadding(14, 16, 12, 16);
+// ---------- 使用量リング画像 ----------
+function ringImage(percent) {
+  const size = 132;
+  const ctx = new DrawContext();
+  ctx.size = new Size(size, size);
+  ctx.opaque = false;
+  ctx.respectScreenScale = true;
+  const cx = size / 2, cy = size / 2, r = size / 2 - 10;
+  const arcPath = (fromDeg, toDeg) => {
+    const p = new Path();
+    const steps = Math.max(2, Math.ceil((toDeg - fromDeg) / 3));
+    for (let i = 0; i <= steps; i++) {
+      const a = ((fromDeg + (toDeg - fromDeg) * (i / steps)) * Math.PI) / 180;
+      const x = cx + r * Math.cos(a);
+      const y = cy + r * Math.sin(a);
+      if (i === 0) p.move(new Point(x, y)); else p.addLine(new Point(x, y));
+    }
+    return p;
+  };
+  ctx.setLineWidth(13);
+  ctx.setStrokeColor(TRACK);
+  ctx.addPath(arcPath(0, 360));
+  ctx.strokePath();
+  const pct = Math.max(0, Math.min(100, percent));
+  if (pct > 0) {
+    ctx.setStrokeColor(pct >= 80 ? PINK : pct >= 50 ? YELLOW : ACCENT);
+    ctx.addPath(arcPath(-90, -90 + pct * 3.6));
+    ctx.strokePath();
+  }
+  return ctx.getImage();
+}
 
+function bgGradient(w) {
   const bg = new LinearGradient();
   bg.colors = [new Color("#101623"), new Color("#1b2a4a")];
   bg.locations = [0, 1];
   w.backgroundGradient = bg;
+  return w;
+}
 
-  const WHITE = new Color("#ffffff");
-  const SOFT = new Color("#c7d2e8");
-  const ACCENT = new Color("#7dd3fc");
-  const MEMO = new Color("#fda4af");
+// ---------- 大サイズ：一日の流れ ----------
+async function buildLarge(data) {
+  const w = bgGradient(new ListWidget());
+  w.setPadding(14, 16, 12, 16);
 
-  // 上段：日付＋区分＋シフト
   const head = w.addStack();
   head.layoutHorizontally();
   const dateT = head.addText(`🗓 ${data.dateLabel}`);
@@ -120,7 +157,6 @@ async function buildWidget() {
   typeT.font = Font.systemFont(13);
   typeT.textColor = ACCENT;
 
-  // アラート（遅延などがある時だけ表示）
   if (data.alert) {
     w.addSpacer(6);
     const alertStack = w.addStack();
@@ -132,9 +168,9 @@ async function buildWidget() {
     aT.textColor = new Color("#fecdd3");
   }
 
-  // 天気ストリップ（取れた時だけ表示）
   const weather = await loadWeather();
   if (weather && weather.daily) {
+    w.addSpacer(6);
     const d = weather.daily;
     const wLine = w.addText(`${weatherLabel(d.weather_code[0])}　最高 ${Math.round(d.temperature_2m_max[0])}° / 最低 ${Math.round(d.temperature_2m_min[0])}°　☂️ ${d.precipitation_probability_max[0] ?? 0}%`);
     wLine.font = Font.systemFont(12);
@@ -145,25 +181,21 @@ async function buildWidget() {
         const note = j.reasons.length ? `（${j.reasons.join("・")}）` : "";
         const ret = w.addText(`帰り23時 ${Math.round(j.temp)}° 湿度${Math.round(j.hum)}% 風${j.wind.toFixed(0)}m → ${j.verdict}${note}`);
         ret.font = Font.boldSystemFont(12);
-        ret.textColor = j.hard ? new Color("#fda4af") : (j.caution ? new Color("#fde68a") : new Color("#86efac"));
+        ret.textColor = j.hard ? PINK : (j.caution ? YELLOW : GREEN);
       }
     }
   }
 
   w.addSpacer(8);
-
-  // 次の予定（大きく）
-  const next = nextEvent(data.schedule || []);
   const nextLabel = w.addText("つぎの予定");
   nextLabel.font = Font.systemFont(11);
   nextLabel.textColor = SOFT;
+  const next = nextEvent(data.schedule);
   const nextT = w.addText(next ? `${next.time}　${next.label}` : "今日の予定はおわり🌙");
   nextT.font = Font.boldSystemFont(24);
   nextT.textColor = WHITE;
 
   w.addSpacer(8);
-
-  // 中段：今日の流れ
   const flowTitle = w.addText("― 今日の流れ ―");
   flowTitle.font = Font.systemFont(11);
   flowTitle.textColor = SOFT;
@@ -173,56 +205,98 @@ async function buildWidget() {
     row.textColor = WHITE;
   }
 
-  w.addSpacer(8);
-
-  // 下段：メモと電車を左右に
-  const bottom = w.addStack();
-  bottom.layoutHorizontally();
-
-  const memoCol = bottom.addStack();
-  memoCol.layoutVertically();
-  const memoTitle = memoCol.addText("📌 忘れ防止メモ");
-  memoTitle.font = Font.boldSystemFont(12);
-  memoTitle.textColor = MEMO;
-  const memos = (data.memos || []).slice(0, 3);
-  if (memos.length === 0) {
-    const t = memoCol.addText("（なし）");
-    t.font = Font.systemFont(12);
-    t.textColor = SOFT;
-  }
-  for (const m of memos) {
-    const t = memoCol.addText(`・${m}`);
-    t.font = Font.systemFont(12);
-    t.textColor = WHITE;
-  }
-
-  bottom.addSpacer();
-
-  // 電車：平日／土日で自動切替（data.trains があればそちら優先）
   let train = data.train || null;
   if (data.trains) {
     const dow = new Date().getDay();
     train = (dow === 0 || dow === 6) ? data.trains.holiday : data.trains.weekday;
   }
   if (train) {
-    const trainCol = bottom.addStack();
-    trainCol.layoutVertically();
-    const trainTitle = trainCol.addText(`🚃 ${train.title}`);
+    w.addSpacer(8);
+    const trainTitle = w.addText(`🚃 ${train.title}`);
     trainTitle.font = Font.boldSystemFont(12);
     trainTitle.textColor = ACCENT;
     for (const line of train.lines || []) {
-      const t = trainCol.addText(line);
-      t.font = Font.systemFont(12);
+      const t = w.addText(line);
+      t.font = Font.systemFont(13);
       t.textColor = WHITE;
     }
   }
 
-  // 15分後に再読み込みを促す
   w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
   return w;
 }
 
-const widget = await buildWidget();
+// ---------- 中サイズ：Muse週間使用量 ----------
+function buildMedium(data) {
+  const w = bgGradient(new ListWidget());
+  w.setPadding(12, 14, 12, 14);
+  const usage = data.usage || { percent: 0, resetLabel: "", updated: "" };
+
+  const row = w.addStack();
+  row.layoutHorizontally();
+
+  const ringStack = row.addStack();
+  const img = ringStack.addImage(ringImage(usage.percent));
+  img.imageSize = new Size(104, 104);
+
+  row.addSpacer(10);
+
+  const col = row.addStack();
+  col.layoutVertically();
+  const title = col.addText("Muse 週間使用量");
+  title.font = Font.boldSystemFont(13);
+  title.textColor = SOFT;
+  const pct = col.addText(`${usage.percent}%`);
+  pct.font = Font.boldSystemFont(34);
+  pct.textColor = usage.percent >= 80 ? PINK : usage.percent >= 50 ? YELLOW : WHITE;
+  if (usage.resetLabel) {
+    const rs = col.addText(usage.resetLabel);
+    rs.font = Font.systemFont(12);
+    rs.textColor = ACCENT;
+  }
+  if (usage.updated) {
+    const up = col.addText(`更新 ${usage.updated}`);
+    up.font = Font.systemFont(10);
+    up.textColor = SOFT;
+  }
+
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+  return w;
+}
+
+// ---------- 小サイズ：次の予定ミニ ----------
+function buildSmall(data) {
+  const w = bgGradient(new ListWidget());
+  w.setPadding(12, 12, 12, 12);
+  const d = w.addText(data.dateLabel);
+  d.font = Font.boldSystemFont(13);
+  d.textColor = ACCENT;
+  w.addSpacer(6);
+  const next = nextEvent(data.schedule);
+  const t1 = w.addText("つぎの予定");
+  t1.font = Font.systemFont(10);
+  t1.textColor = SOFT;
+  const t2 = w.addText(next ? `${next.time}\n${next.label}` : "おわり🌙");
+  t2.font = Font.boldSystemFont(17);
+  t2.textColor = WHITE;
+  if (data.usage) {
+    w.addSpacer(6);
+    const u = w.addText(`Muse ${data.usage.percent}%`);
+    u.font = Font.systemFont(11);
+    u.textColor = SOFT;
+  }
+  w.refreshAfterDate = new Date(Date.now() + 15 * 60 * 1000);
+  return w;
+}
+
+// ---------- メイン ----------
+const data = await loadData();
+const family = config.widgetFamily || "large";
+let widget;
+if (family === "medium") widget = buildMedium(data);
+else if (family === "small") widget = buildSmall(data);
+else widget = await buildLarge(data);
+
 if (config.runsInWidget) {
   Script.setWidget(widget);
 } else {
