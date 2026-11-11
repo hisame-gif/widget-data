@@ -1,1 +1,1 @@
-{"alert":"","dateLabel":"11/11（水）","dayType":"お休みの日","schedule":[{"label":"お風呂","time":"17:30"},{"label":"夕飯","time":"18:00"}],"shift":"","trains":null,"updated":"2026-11-11T13:52+09:00","usage":{"percent":80,"resetLabel":"11/15 1:52 リセット","updated":"11/11 13:44"}}
+{"alert":"","dateLabel":"11/12（木）","dayType":"お休みの日","schedule":[{"time":"17:30","label":"お風呂"},{"time":"18:00","label":"夕飯"}],"shift":"","trains":null,"updated":"2026-11-12T04:51+09:00","usage":{"percent":80,"resetLabel":"11/15 1:52 リセット","updated":"11/11 13:44"}}
