@@ -1,6 +1,6 @@
 {
   "alert": "",
-  "dateLabel": "11/14（土）",
+  "dateLabel": "11/15（日）",
   "dayType": "バイトの日",
   "schedule": [
     {
@@ -39,7 +39,7 @@
       ]
     }
   },
-  "updated": "2026-11-14T04:51+09:00",
+  "updated": "2026-11-15T04:51+09:00",
   "usage": {
     "percent": 80,
     "resetLabel": "11/15 1:52 リセット",
